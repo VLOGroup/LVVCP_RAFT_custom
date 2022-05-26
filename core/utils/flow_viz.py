@@ -67,7 +67,7 @@ def make_colorwheel():
     return colorwheel
 
 
-def flow_uv_to_colors(u, v, convert_to_bgr=False):
+def flow_uv_to_colors(u, v, convert_to_bgr=False, darkmode=False):
     """
     Applies the flow color wheel to (possibly clipped) flow components u and v.
 
@@ -98,15 +98,19 @@ def flow_uv_to_colors(u, v, convert_to_bgr=False):
         col1 = tmp[k1] / 255.0
         col = (1-f)*col0 + f*col1
         idx = (rad <= 1)
-        col[idx]  = 1 - rad[idx] * (1-col[idx])
-        col[~idx] = col[~idx] * 0.75   # out of range
+        if darkmode:
+            col[idx]  =  rad[idx] * col[idx]
+            col[~idx] = col[~idx] * 0.25   # out of range
+        else:
+            col[idx]  = 1 - rad[idx] * (1-col[idx])
+            col[~idx] = col[~idx] * 0.75   # out of range
         # Note the 2-i => BGR instead of RGB
         ch_idx = 2-i if convert_to_bgr else i
         flow_image[:,:,ch_idx] = np.floor(255 * col)
     return flow_image
 
 
-def flow_to_image(flow_uv, clip_flow=None, convert_to_bgr=False):
+def flow_to_image(flow_uv, clip_flow=None, convert_to_bgr=False, darkmode=False):
     """
     Expects a two dimensional flow image of shape.
 
@@ -118,8 +122,8 @@ def flow_to_image(flow_uv, clip_flow=None, convert_to_bgr=False):
     Returns:
         np.ndarray: Flow visualization image of shape [H,W,3]
     """
-    assert flow_uv.ndim == 3, 'input flow must have three dimensions'
-    assert flow_uv.shape[2] == 2, 'input flow must have shape [H,W,2]'
+    assert flow_uv.ndim == 3, f"input flow must have three dimensions but is {flow_uv.shape}"
+    assert flow_uv.shape[2] == 2, f"input flow must have shape [H,W,2] but is {flow_uv.shape}"
     if clip_flow is not None:
         flow_uv = np.clip(flow_uv, 0, clip_flow)
     u = flow_uv[:,:,0]
@@ -129,4 +133,4 @@ def flow_to_image(flow_uv, clip_flow=None, convert_to_bgr=False):
     epsilon = 1e-5
     u = u / (rad_max + epsilon)
     v = v / (rad_max + epsilon)
-    return flow_uv_to_colors(u, v, convert_to_bgr)
+    return flow_uv_to_colors(u, v, convert_to_bgr, darkmode=darkmode)

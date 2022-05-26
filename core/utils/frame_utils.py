@@ -1,11 +1,10 @@
+import warnings
 import numpy as np
 from PIL import Image
 from os.path import *
 import re
 
-import cv2
-cv2.setNumThreads(0)
-cv2.ocl.setUseOpenCL(False)
+import imageio
 
 TAG_CHAR = np.array([202021.25], np.float32)
 
@@ -100,25 +99,21 @@ def writeFlow(filename,uv,v=None):
 
 
 def readFlowKITTI(filename):
-    flow = cv2.imread(filename, cv2.IMREAD_ANYDEPTH|cv2.IMREAD_COLOR)
-    flow = flow[:,:,::-1].astype(np.float32)
+    warnings.warn(f"replacement for cv2 with imageio - not used for training yes - please verify")
+    flow = imageio.imread (filename, format ="PNG-FI")
+    if flow.dtype != np.uint16: raise ValueError(f"Kitti Flow PNG images must be 3 channel uint16 images!")
+    flow = flow.astype(np.float32)
     flow, valid = flow[:, :, :2], flow[:, :, 2]
     flow = (flow - 2**15) / 64.0
     return flow, valid
 
-def readDispKITTI(filename):
-    disp = cv2.imread(filename, cv2.IMREAD_ANYDEPTH) / 256.0
-    valid = disp > 0.0
-    flow = np.stack([-disp, np.zeros_like(disp)], -1)
-    return flow, valid
-
 
 def writeFlowKITTI(filename, uv):
+    warnings.warn(f"replacement for cv2 with imageio - not used for training yes - please verify")
     uv = 64.0 * uv + 2**15
     valid = np.ones([uv.shape[0], uv.shape[1], 1])
     uv = np.concatenate([uv, valid], axis=-1).astype(np.uint16)
-    cv2.imwrite(filename, uv[..., ::-1])
-    
+    imageio.imsave (filename, uv, format="PNG-FI") # compress_level
 
 def read_gen(file_name, pil=False):
     ext = splitext(file_name)[-1]

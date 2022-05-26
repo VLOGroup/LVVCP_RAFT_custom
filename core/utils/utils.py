@@ -6,24 +6,47 @@ from scipy import interpolate
 
 class InputPadder:
     """ Pads images such that dimensions are divisible by 8 """
-    def __init__(self, dims, mode='sintel'):
-        self.ht, self.wd = dims[-2:]
-        pad_ht = (((self.ht // 8) + 1) * 8 - self.ht) % 8
-        pad_wd = (((self.wd // 8) + 1) * 8 - self.wd) % 8
+    def __init__(self, dims, mode='sintel', ds=8):
+        self._dims = dims[-2:]
+        self.mode = mode
+        self.ds = ds
+        self.ht, self.wd = self._dims
+        pad_ht = (((self.ht // ds) + 1) * ds - self.ht) % ds
+        pad_wd = (((self.wd // ds) + 1) * ds - self.wd) % ds
+        self._ht_pad = self.ht + pad_ht
+        self._wd_pad = self.wd + pad_wd
         if mode == 'sintel':
             self._pad = [pad_wd//2, pad_wd - pad_wd//2, pad_ht//2, pad_ht - pad_ht//2]
         else:
             self._pad = [pad_wd//2, pad_wd - pad_wd//2, 0, pad_ht]
 
     def pad(self, *inputs):
-        return [F.pad(x, self._pad, mode='replicate') for x in inputs]
+        inputs_padded = []
+        for inp in inputs:
+            if inp.shape[-2:] != self._dims:
+                raise ValueError(f"Wrong dimensionality {inp.shape} should have H,W = {self._dims}")
+            if inp.ndim == 4 :
+                # Standard NCHW tensor
+                inputs_padded += [F.pad(inp, self._pad, mode='replicate') ]
+            else:
+                # Non-Standard Tensor => Bring to 4D N1HW for padding
+                inp4D = inp.reshape([-1,1,self.ht,self.wd])
+                inp4D_pad = F.pad(inp4D, self._pad, mode='replicate') 
+                shape_pad = inp.shape[:-2] + (self._ht_pad, self._wd_pad)
+                inputs_padded += [inp4D_pad.reshape(shape_pad)]
+        return inputs_padded
 
     def unpad(self,x):
+        if x.shape[-2]!=self._ht_pad or x.shape[-1]!=self._wd_pad:
+            raise ValueError(f"Wrong dimensionality {x.shape} should have padded shape H,W == {self._ht_pad},{self._wd_pad}")
         ht, wd = x.shape[-2:]
         c = [self._pad[2], ht-self._pad[3], self._pad[0], wd-self._pad[1]]
         return x[..., c[0]:c[1], c[2]:c[3]]
 
-def forward_interpolate(flow):
+    def __repr__(self):
+        return f"InputPadder(dims={self.ht, self.wd}, mode='{self.mode}', ds={self.ds})"
+
+def forward_interpolate(flow:torch.Tensor):
     flow = flow.detach().cpu().numpy()
     dx, dy = flow[0], flow[1]
 
@@ -54,29 +77,42 @@ def forward_interpolate(flow):
     return torch.from_numpy(flow).float()
 
 
-def bilinear_sampler(img, coords, mode='bilinear', mask=False):
+def bilinear_sampler(img:torch.Tensor, coords:torch.Tensor, mode:str='bilinear'):
     """ Wrapper for grid_sample, uses pixel coordinates """
+    assert coords.shape[-1] == 2
     H, W = img.shape[-2:]
     xgrid, ygrid = coords.split([1,1], dim=-1)
+
     xgrid = 2*xgrid/(W-1) - 1
     ygrid = 2*ygrid/(H-1) - 1
 
     grid = torch.cat([xgrid, ygrid], dim=-1)
     img = F.grid_sample(img, grid, align_corners=True)
 
-    if mask:
-        mask = (xgrid > -1) & (ygrid > -1) & (xgrid < 1) & (ygrid < 1)
-        return img, mask.float()
-
     return img
 
+def bilinear_sampler_with_mask(img:torch.Tensor, coords:torch.Tensor, mode:str='bilinear'):
+    """ Wrapper for grid_sample, uses pixel coordinates """
+    assert coords.shape[-1] == 2
+    H, W = img.shape[-2:]
+    xgrid, ygrid = coords.split([1,1], dim=-1)
+    # only count valid if all 4 pixels (bilinear) are within the image space
+    mask_valid = (xgrid > 0) & (ygrid > 0) & (xgrid < (W-1)) & (ygrid < (H-1))
 
-def coords_grid(batch, ht, wd):
+    xgrid = 2*xgrid/(W-1) - 1
+    ygrid = 2*ygrid/(H-1) - 1
+
+    grid = torch.cat([xgrid, ygrid], dim=-1)
+    img = F.grid_sample(img, grid, align_corners=True)
+
+    return img, mask_valid.float()
+
+def coords_grid(batch:int, ht:int, wd:int):
     coords = torch.meshgrid(torch.arange(ht), torch.arange(wd))
-    coords = torch.stack(coords[::-1], dim=0).float()
+    coords = torch.stack((coords[1],coords[0]), dim=0).float()
     return coords[None].repeat(batch, 1, 1, 1)
 
 
-def upflow8(flow, mode='bilinear'):
+def upflow8(flow:torch.Tensor, mode:str='bilinear'):
     new_size = (8 * flow.shape[2], 8 * flow.shape[3])
     return  8 * F.interpolate(flow, size=new_size, mode=mode, align_corners=True)

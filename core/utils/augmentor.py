@@ -3,9 +3,8 @@ import random
 import math
 from PIL import Image
 
-import cv2
-cv2.setNumThreads(0)
-cv2.ocl.setUseOpenCL(False)
+import warnings
+import torchvision.transforms.functional as TTF
 
 import torch
 from torchvision.transforms import ColorJitter
@@ -82,10 +81,13 @@ class FlowAugmentor:
         scale_y = np.clip(scale_y, min_scale, None)
 
         if np.random.rand() < self.spatial_aug_prob:
-            # rescale the images
-            img1 = cv2.resize(img1, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
-            img2 = cv2.resize(img2, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
-            flow = cv2.resize(flow, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
+            # rescale the images         
+            hn, wn = int(ht*scale_y), int(wd*scale_x)
+            # UNTESTET - Replacement for CV2 # UNTESTET - Replacement for CV2, for pytorch >= 1.7
+            warnings.warn(f"replacement for cv2 with imageio - not used for training yes - please verify")
+            img1 = TTF.resize(torch.from_numpy(img1.transpose(2,0,1)), size=[hn,wn], interpolation=TTF.Image.BILINEAR).numpy().transpose(1,2,0)
+            img2 = TTF.resize(torch.from_numpy(img2.transpose(2,0,1)), size=[hn,wn], interpolation=TTF.Image.BILINEAR).numpy().transpose(1,2,0)
+            flow = TTF.resize(torch.from_numpy(flow.transpose(2,0,1)), size=[hn,wn], interpolation=TTF.Image.BILINEAR).numpy().transpose(1,2,0)
             flow = flow * [scale_x, scale_y]
 
         if self.do_flip:
@@ -206,8 +208,11 @@ class SparseFlowAugmentor:
 
         if np.random.rand() < self.spatial_aug_prob:
             # rescale the images
-            img1 = cv2.resize(img1, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
-            img2 = cv2.resize(img2, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
+            # UNTESTET - Replacement for CV2, for pytorch >= 1.7
+            warnings.warn(f"replacement for cv2 with imageio - not used for training yes - please verify")
+            hn, wn = int(ht*scale_y), int(wd*scale_x)
+            img1 = TTF.resize(torch.from_numpy(img1.transpose(2,0,1)), size=[hn,wn], interpolation=TTF.Image.BILINEAR).numpy().transpose(1,2,0)
+            img2 = TTF.resize(torch.from_numpy(img2.transpose(2,0,1)), size=[hn,wn], interpolation=TTF.Image.BILINEAR).numpy().transpose(1,2,0)
             flow, valid = self.resize_sparse_flow_map(flow, valid, fx=scale_x, fy=scale_y)
 
         if self.do_flip:
